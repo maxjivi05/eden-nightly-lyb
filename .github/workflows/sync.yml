@@ -1,0 +1,32 @@
+name: Sync Fork
+
+on:
+  schedule:
+    # This runs the job automatically every 6 hours.
+    # You can change the schedule using standard cron syntax.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    # This allows you to run the sync manually from the Actions tab.
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+        with:
+          # We need to fetch all history to correctly sync.
+          fetch-depth: 0
+
+      - name: Sync the fork
+        uses: repo-sync/github-sync@v2
+        with:
+          # REQUIRED: The repository to sync from.
+          source_repo: "https://github.com/pflyly/eden-nightly.git"
+          source_branch: "main"
+          
+          # REQUIRED: The branch in this repository to push updates to.
+          destination_branch: "main"
+          
+          # REQUIRED: The Personal Access Token (PAT) you created.
+          github_token: ${{ secrets.PAT }}
