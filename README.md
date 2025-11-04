@@ -1,7 +1,5 @@
 # Unofficial Eden "Lyb" Nightly Build
 
-![GitHub Release](https://img.shields.io/github/v/release/maxjivi05/eden-nightly-lyfb) ![GitHub Downloads](https://img.shields.io/github/downloads/maxjivi05/eden-nightly-lyfb/total) ![CI Build Status](https://github.com/maxjivi05/eden-nightly-lyfb/actions/workflows/build-nightly.yml/badge.svg)
-
 ### Release Overview
 
 This repository provides an unofficial nightly release of a modified version of Eden for **Android**.
