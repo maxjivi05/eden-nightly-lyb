@@ -21,22 +21,24 @@ jobs:
       - name: Sync fork with upstream repository
         uses: aormsby/fork-sync-with-upstream-action@v3.4
         with:
-          # REQUIRED: The repository you are syncing FROM.
+          # The repository you are syncing FROM
           upstream_sync_repo: pflyly/eden-nightly
           
-          # REQUIRED: The branch in the upstream repo to sync from.
+          # The branch in the upstream repo to sync from
           upstream_sync_branch: main
           
-          # REQUIRED: The branch in THIS repository to sync TO.
+          # The branch in THIS repository to sync TO
           target_sync_branch: main
 
-          # REQUIRED: The Personal Access Token (PAT) you created.
+          # The Personal Access Token (PAT) you created
           target_repo_token: ${{ secrets.PAT }}
           
-          # Force a sync even if there are merge conflicts (overwrites local changes)
-          force: true
+          # This tells git to automatically accept your local changes in case of a conflict
+          git_pull_args: --strategy-option theirs
           
           # Files and directories to protect from being overwritten by the sync
           ignore_files: |
             README.md
             .github/patches/
+            .github/workflows/build-nightly.yml
+            .github/workflows/sync.yml
