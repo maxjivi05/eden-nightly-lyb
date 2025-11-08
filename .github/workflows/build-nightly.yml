@@ -5,20 +5,14 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # This allows you to run the build manually
+  schedule:
+    # Runs automatically every 6 hours. You can change this cron schedule.
+    - cron: '0 */6 * * *'
   workflow_dispatch:
-  # This automatically triggers the build AFTER the "Sync Fork" workflow succeeds
-  workflow_run:
-    workflows: ["Sync Fork"]
-    types:
-      - completed
+    # Allows you to run this manually from the Actions tab.
 
 jobs:
   android:
-    # This condition ensures the build only runs if the sync was successful
-    # or if you triggered it manually.
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    
     runs-on: ubuntu-latest
     name: "Android (Lyfb)"
     env:
@@ -27,23 +21,42 @@ jobs:
       CCACHE_COMPILERCHECK: content
       CCACHE_SLOPPINESS: time_macros
     steps:
-      - uses: actions/checkout@v5.0.0
+      - name: Checkout Workflow Files
+        uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           sudo rm /var/lib/man-db/auto-update
           sudo apt-get update -y
           sudo apt-get install ccache glslang-tools libvulkan-dev python3-requests -y
 
-      - name: Clone Eden Source
+      - name: Clone Fresh Eden Source
         run: |
           git clone 'https://git.eden-emu.dev/eden-emu/eden.git' ./eden
+          echo "Successfully cloned latest Eden source."
 
-      - name: Apply Android Patch
-        working-directory: ./eden
+      - name: Apply Live Patches
         run: |
-          git apply ${{ github.workspace }}/.github/patches/0001-load-system-driver-directly.patch
-          echo "Android patch applied successfully."
+          CMAKE_FILE="./eden/src/android/app/src/main/jni/CMakeLists.txt"
+          NATIVE_FILE="./eden/src/android/app/src/main/jni/native.cpp"
+
+          echo "1. Patching CMakeLists.txt to remove adrenotools and link Vulkan..."
+          sed -i 's/add_subdirectory(${CMAKE_SOURCE_DIR}\/externals\/libadrenotools EXCLUDE_FROM_ALL)//' "$CMAKE_FILE"
+          sed -i 's/target_link_libraries(yuzu-android PRIVATE adrenotools)/target_link_libraries(yuzu-android PRIVATE vulkan)/' "$CMAKE_FILE"
+          
+          echo "2. Commenting out adrenotools header in native.cpp..."
+          sed -i 's|#include <adrenotools/driver.h>|// Patched by Lyfb: #include <adrenotools/driver.h>|' "$NATIVE_FILE"
+
+          echo "3. Replacing InitializeGpuDriver function..."
+          sed -i '/void EmulationSession::InitializeGpuDriver/,/m_vulkan_library = std::make_shared<Common::DynamicLibrary>(handle);/c\void EmulationSession::InitializeGpuDriver(const std::string&, const std::string&, const std::string&, const std::string&) {\n#ifdef ARCHITECTURE_arm64\n    void* handle{};\n    handle = dlopen("libvulkan.so", RTLD_NOW);\n    if (!handle) handle = dlopen("libvulkan.so.1", RTLD_NOW);\n    m_vulkan_library = std::make_shared<Common::DynamicLibrary>(handle);\n#endif' "$NATIVE_FILE"
+
+          echo "4. Replacing getSystemDriverInfo function..."
+          sed -i '/jobjectArray Java_org_yuzu_yuzu_1emu_utils_GpuDriverHelper_getSystemDriverInfo/,/return j_driver_info;/c\jobjectArray Java_org_yuzu_yuzu_1emu_utils_GpuDriverHelper_getSystemDriverInfo(\n    JNIEnv* env, jobject j_obj, jobject j_surf, jstring) {\n    void* handle = dlopen("libvulkan.so", RTLD_NOW);\n    if (!handle) handle = dlopen("libvulkan.so.1", RTLD_NOW);\n    auto driver_library = std::make_shared<Common::DynamicLibrary>(handle);\n    auto window = std::make_unique<EmuWindow_Android>(ANativeWindow_fromSurface(env, j_surf), driver_library);\n    Vulkan::vk::InstanceDispatch dld;\n    Vulkan::vk::Instance vk_instance = Vulkan::CreateInstance(*driver_library, dld, VK_API_VERSION_1_1, Core::Frontend::WindowSystemType::Android);\n    auto surface = Vulkan::CreateSurface(vk_instance, window->GetWindowInfo());\n    auto device = Vulkan::CreateDevice(vk_instance, dld, *surface);\n    auto driver_version = device.GetDriverVersion();\n    auto version_string = fmt::format("{}.{}.{}", VK_API_VERSION_MAJOR(driver_version), VK_API_VERSION_MINOR(driver_version), VK_API_VERSION_PATCH(driver_version));\n    jobjectArray j_driver_info = env->NewObjectArray(2, Common::Android::GetStringClass(), Common::Android::ToJString(env, version_string));\n    env->SetObjectArrayElement(j_driver_info, 1, Common::Android::ToJString(env, device.GetDriverName()));\n    return j_driver_info;' "$NATIVE_FILE"
+
+          echo "5. Replacing getGpuModel function..."
+          sed -i '/jstring Java_org_yuzu_yuzu_1emu_utils_GpuDriverHelper_getGpuModel/,/return Common::Android::ToJString(env, model_name);/c\jstring Java_org_yuzu_yuzu_1emu_utils_GpuDriverHelper_getGpuModel(JNIEnv *env, jobject j_obj, jobject j_surf, jstring) {\n    void* handle = dlopen("libvulkan.so", RTLD_NOW);\n    if (!handle) handle = dlopen("libvulkan.so.1", RTLD_NOW);\n    auto driver_library = std::make_shared<Common::DynamicLibrary>(handle);\n    auto window = std::make_unique<EmuWindow_Android>(ANativeWindow_fromSurface(env, j_surf), driver_library);\n    Vulkan::vk::InstanceDispatch dld;\n    Vulkan::vk::Instance vk_instance = Vulkan::CreateInstance(*driver_library, dld, VK_API_VERSION_1_1, Core::Frontend::WindowSystemType::Android);\n    auto surface = Vulkan::CreateSurface(vk_instance, window->GetWindowInfo());\n    auto device = Vulkan::CreateDevice(vk_instance, dld, *surface);\n    const std::string model_name{device.GetModelName()};\n    window.release();\n    return Common::Android::ToJString(env, model_name);' "$NATIVE_FILE"
+
+          echo "All patches applied successfully."
 
       - name: Restore ccache
         uses: actions/cache/restore@v4
