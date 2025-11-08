@@ -1,10 +1,13 @@
-name: Build and Sync Lyfb Version
+name: Build Lyfb Version
 
 concurrency:
   group: build-eden-${{ github.ref }}
   cancel-in-progress: true
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # This runs the job automatically every 6 hours.
     - cron: '0 */6 * * *'
@@ -26,21 +29,21 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          sudo rm /var/lib/man-db/auto-update
           sudo apt-get update -y
-          sudo apt-get install ccache glslang-tools libvulkan-dev python3-requests -y
+          sudo apt-get install -y ccache glslang-tools libvulkan-dev python3-requests
 
-      - name: Clone Eden Source
+      - name: Clone Latest Eden Source
         run: |
           git clone 'https://git.eden-emu.dev/eden-emu/eden.git' ./eden
           echo "Successfully cloned latest Eden source."
 
-      - name: Apply Embedded Patch
+      - name: Create and Apply Patch
         working-directory: ./eden
         run: |
-          # This "here document" method is the most robust way to apply a patch in a workflow.
-          # It avoids all syntax and shell escaping issues from previous attempts.
-          git apply - <<'PATCH'
+          # This is the most robust method for a single-file workflow.
+          # It writes the patch to a temporary file inside the runner,
+          # avoiding all YAML and shell parsing errors from previous attempts.
+          cat <<'PATCH' > temp_fix.patch
           --- a/src/android/app/src/main/jni/CMakeLists.txt
           +++ b/src/android/app/src/main/jni/CMakeLists.txt
           @@ -13,9 +13,6 @@
@@ -147,7 +150,9 @@ jobs:
                        std::make_unique<EmuWindow_Android>(ANativeWindow_fromSurface(env, j_surf), driver_library);
            
           PATCH
-          echo "All patches applied successfully."
+
+          git apply temp_fix.patch
+          echo "Patch applied successfully from temporary file."
 
       - name: Restore ccache
         uses: actions/cache/restore@v4
